@@ -1,0 +1,37 @@
+name: Scrape news
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: Pages to scrape this run
+        default: "50"
+      max_depth:
+        description: Link hops to follow from the RSS feeds
+        default: "2"
+
+# One crawl at a time; a second trigger waits for the first to finish
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Crawl
+        run: python crawler.py --max-pages "$MAX_PAGES" --max-depth "$MAX_DEPTH"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          MAX_DEPTH: ${{ inputs.max_depth }}
