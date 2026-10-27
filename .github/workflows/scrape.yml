@@ -4,16 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       max_pages:
-        description: Pages to scrape this run
-        default: "50"
+        description: Pages to scrape per run
+        default: "200"
       max_depth:
         description: Link hops to follow from the RSS feeds
         default: "2"
+      runs_left:
+        description: Further runs to chain while URLs are pending (0 = this run only)
+        default: "10"
 
-# One crawl at a time; a second trigger waits for the first to finish
+# One crawl at a time; a chained run waits for the current one to finish
 concurrency:
   group: scrape
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write  # to dispatch the next run
 
 jobs:
   scrape:
@@ -30,8 +37,22 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Crawl
+        id: crawl
         run: python crawler.py --max-pages "$MAX_PAGES" --max-depth "$MAX_DEPTH"
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MAX_PAGES: ${{ inputs.max_pages }}
           MAX_DEPTH: ${{ inputs.max_depth }}
+
+      - name: Start next run
+        if: steps.crawl.outputs.pending != '0' && inputs.runs_left != '0'
+        run: |
+          gh workflow run scrape.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f max_pages="$MAX_PAGES" -f max_depth="$MAX_DEPTH" -f runs_left="$((RUNS_LEFT - 1))"
+          echo "Started next run: $PENDING URLs pending, $((RUNS_LEFT - 1)) runs left after it"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PENDING: ${{ steps.crawl.outputs.pending }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          MAX_DEPTH: ${{ inputs.max_depth }}
+          RUNS_LEFT: ${{ inputs.runs_left }}

@@ -205,6 +205,10 @@ def crawl(conn, max_pages: int, max_depth: int, delay: float) -> None:
         "SELECT count(*) FROM urls WHERE status = 'pending' AND depth <= %s", (max_depth,)
     ).fetchone()[0]
     print(f"Scraped {counts['done']}, skipped {counts['skipped']}, failed {counts['failed']}; {pending} still pending")
+    # Lets the workflow decide whether to start another run
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"pending={pending}\n")
 
 
 def main() -> None:
