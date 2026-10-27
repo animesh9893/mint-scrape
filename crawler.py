@@ -214,7 +214,11 @@ def main() -> None:
     parser.add_argument("--delay", type=float, default=1.0, help="seconds between requests")
     args = parser.parse_args()
 
-    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if not database_url:
+        raise SystemExit("DATABASE_URL is not set (in GitHub Actions, add it as a repository secret)")
+
+    with psycopg.connect(database_url, autocommit=True) as conn:
         conn.execute(SCHEMA.read_text())
         sources = conn.execute("SELECT id, slug, base_url, feed_urls FROM sources ORDER BY id").fetchall()
         for source_id, slug, base_url, feed_urls in sources:
