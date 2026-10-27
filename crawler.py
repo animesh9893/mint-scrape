@@ -99,7 +99,7 @@ def claim(conn, max_depth: int, tried: list[int]):
     ).fetchone()
 
 
-def save_article(conn, url_id: int, source_id: int, depth: int, base_url: str, parser, article: dict) -> int:
+def save_article(conn, url_id: int, url: str, source_id: int, depth: int, base_url: str, parser, article: dict) -> int:
     body = "\n\n".join(p for s in article["sections"] for p in s["paragraphs"])
     article_id = conn.execute(
         """INSERT INTO articles (url_id, source_id, headline, summary, section, image_url,
@@ -143,17 +143,23 @@ def save_article(conn, url_id: int, source_id: int, depth: int, base_url: str, p
 
     # Follow same-site links only; non-article pages are recorded but never fetched
     host = urlsplit(base_url).netloc
+    target_ids = []
     for href, anchor in article["links"]:
-        target = normalize(href, base_url)
+        target = normalize(href, url)  # relative hrefs resolve against the article itself
         if urlsplit(target).netloc != host:
             continue
         status = "pending" if parser.is_article_url(target) else "skipped"
         target_id = upsert_url(conn, source_id, target, depth + 1, status)
         if target_id != url_id:
+            target_ids.append(target_id)
             conn.execute(
                 "INSERT INTO links (from_url_id, to_url_id, anchor_text) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (url_id, target_id, anchor or None),
             )
+    # On a re-scrape, drop links the article no longer has
+    conn.execute(
+        "DELETE FROM links WHERE from_url_id = %s AND NOT (to_url_id = ANY(%s))", (url_id, target_ids)
+    )
     return article_id
 
 
@@ -173,7 +179,7 @@ def crawl(conn, max_pages: int, max_depth: int, delay: float) -> None:
                 if article is None or not article["sections"]:
                     status = "skipped"
                 else:
-                    save_article(conn, url_id, source_id, depth, base_url, parser, article)
+                    save_article(conn, url_id, url, source_id, depth, base_url, parser, article)
                     status = "done"
                 conn.execute(
                     """UPDATE urls SET status = %s, attempts = attempts + 1, last_error = NULL, fetched_at = now()
